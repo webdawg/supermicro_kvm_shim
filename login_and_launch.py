@@ -48,6 +48,29 @@ JAR_DIR = os.environ.get("JAR_DIR", "/work/jars")
 PATCH_CLASSES = os.environ.get("PATCH_CLASSES", "/opt/shim/patch-classes")
 LOCAL_CODEBASE = os.environ.get("LOCAL_CODEBASE", "http://127.0.0.1:8765/")
 JARS = ["rc.jar", "drvredir.jar", "rcsoftkbd.jar"]
+FLIP_KEY_POLARITY = os.environ.get("FLIP_KEY_POLARITY", "0") not in ("0", "false", "False", "")
+
+# Fast scancode-sweep knob: a plain text file (not baked into the
+# image) containing a hex byte like "46", re-read fresh on every
+# reconnect since login_and_launch.py reruns and re-patches the jar
+# each time. Lets us test candidate wire values with a kill+reconnect
+# (~10-15s) instead of a full docker build per attempt. Empty/missing
+# = no override, just log what the translator actually computed.
+SCANCODE_OVERRIDE_FILE = os.environ.get("SCANCODE_OVERRIDE_FILE", "/work/scancode_override")
+
+
+def read_scancode_override():
+    try:
+        with open(SCANCODE_OVERRIDE_FILE) as f:
+            text = f.read().strip()
+    except FileNotFoundError:
+        return None
+    if not text:
+        return None
+    value = int(text, 16)
+    if not (0 <= value <= 255):
+        raise ValueError(f"scancode override {value} out of byte range")
+    return value
 
 BASE = f"{BMC_SCHEME}://{BMC_HOST}"
 
@@ -349,6 +372,228 @@ def patch_af_locale(data):
     return bytes(new_data)
 
 
+def patch_rfbhandler_keylog(data):
+    # nn.pp.rc.RFBHandler_01_16 has a thin wrapper, `protected void
+    # a(byte) throws IOException { this.g.writeKeyboardEvent(b); }`,
+    # that's the single point every computed scancode byte passes
+    # through on its way to the wire (confirmed: msg-type 0x04 +
+    # this byte is exactly what tcpdump showed leaving the socket).
+    # Rather than keep inferring scancode values from raw hex dumps,
+    # prepend `System.out.println((int) b)` to that method -- the
+    # JVM's own ground truth for what's actually being sent, logged
+    # every time a key is pressed or released.
+    #
+    # This *inserts* 7 bytes rather than swapping same-length
+    # instructions like the other two patches, so code_length and the
+    # Code attribute's attribute_length both need to grow by 7 too.
+    # No other offsets in the file move: methods are independent
+    # entries, and this jar's classes carry no LineNumberTable/
+    # LocalVariableTable (grep showed none) to also fix up.
+    data = bytearray(data)
+    cp_end, count = _constant_pool_end(data)
+    entries, _ = _parse_constant_pool(data)
+
+    write_kbd_idx = _find_methodref_index(
+        data, cp_end, "nn/pp/rc/bl", "writeKeyboardEvent", "(B)V")
+
+    def find_utf8(text):
+        for idx, val in entries.items():
+            if val == (1, text):
+                return idx
+        return None
+
+    def find_class(name):
+        for idx, val in entries.items():
+            if val[0] == 7 and entries.get(val[1], (None,))[1] == name:
+                return idx
+        return None
+
+    new_entries = []
+
+    def get_or_add_utf8(text):
+        idx = find_utf8(text)
+        if idx is not None:
+            return idx
+        idx = count + len(new_entries)
+        new_entries.append(bytes([1]) + struct.pack(">H", len(text)) + text.encode("utf-8"))
+        return idx
+
+    def get_or_add_class(name):
+        idx = find_class(name)
+        if idx is not None:
+            return idx
+        name_idx = get_or_add_utf8(name)
+        idx = count + len(new_entries)
+        new_entries.append(bytes([7]) + struct.pack(">H", name_idx))
+        return idx
+
+    def get_or_add_fieldref(class_name, field_name, desc):
+        cls_idx = get_or_add_class(class_name)
+        name_idx = get_or_add_utf8(field_name)
+        desc_idx = get_or_add_utf8(desc)
+        nt_idx = None
+        for idx, val in entries.items():
+            if val[0] == 12 and val[1] == (name_idx, desc_idx):
+                nt_idx = idx
+                break
+        if nt_idx is None:
+            for i, e in enumerate(new_entries):
+                if e[0:1] == bytes([12]) and struct.unpack_from(">HH", e, 1) == (name_idx, desc_idx):
+                    nt_idx = count + i
+                    break
+        if nt_idx is None:
+            nt_idx = count + len(new_entries)
+            new_entries.append(bytes([12]) + struct.pack(">HH", name_idx, desc_idx))
+        for idx, val in entries.items():
+            if val[0] == 9 and val[1] == (cls_idx, nt_idx):
+                return idx
+        idx = count + len(new_entries)
+        new_entries.append(bytes([9]) + struct.pack(">HH", cls_idx, nt_idx))
+        return idx
+
+    def get_or_add_methodref(class_name, method_name, desc):
+        cls_idx = get_or_add_class(class_name)
+        name_idx = get_or_add_utf8(method_name)
+        desc_idx = get_or_add_utf8(desc)
+        nt_idx = None
+        for idx, val in entries.items():
+            if val[0] == 12 and val[1] == (name_idx, desc_idx):
+                nt_idx = idx
+                break
+        if nt_idx is None:
+            for i, e in enumerate(new_entries):
+                if e[0:1] == bytes([12]) and struct.unpack_from(">HH", e, 1) == (name_idx, desc_idx):
+                    nt_idx = count + i
+                    break
+        if nt_idx is None:
+            nt_idx = count + len(new_entries)
+            new_entries.append(bytes([12]) + struct.pack(">HH", name_idx, desc_idx))
+        for idx, val in entries.items():
+            if val[0] == 10 and val[1] == (cls_idx, nt_idx):
+                return idx
+        idx = count + len(new_entries)
+        new_entries.append(bytes([10]) + struct.pack(">HH", cls_idx, nt_idx))
+        return idx
+
+    sysout_idx = get_or_add_fieldref("java/lang/System", "out", "Ljava/io/PrintStream;")
+    println_idx = get_or_add_methodref("java/io/PrintStream", "println", "(I)V")
+
+    new_count = count + len(new_entries)
+    if new_count > 0xFFFF:
+        raise RuntimeError("constant pool too large")
+
+    new_data = bytearray()
+    new_data += data[0:8]
+    new_data += struct.pack(">H", new_count)
+    new_data += data[10:cp_end]
+    for entry in new_entries:
+        new_data += entry
+    new_data += data[cp_end:]
+
+    if sysout_idx > 0xFFFF or println_idx > 0xFFFF:
+        raise RuntimeError("constant pool too large for a 2-byte index")
+
+    # Locate the unique tail `iload_1; invokevirtual writeKeyboardEvent; return`
+    # then confirm it's immediately preceded by `aload_0; getfield <any>`,
+    # giving the true start of the method body.
+    tail = bytes([
+        0x1B,
+        0xB6, (write_kbd_idx >> 8) & 0xFF, write_kbd_idx & 0xFF,
+        0xB1,
+    ])
+    hay = bytes(new_data)
+    tail_idx = hay.find(tail)
+    if tail_idx == -1:
+        raise RuntimeError("RFBHandler_01_16.a(byte) tail bytecode not found -- firmware jar changed shape")
+    if hay.find(tail, tail_idx + 1) != -1:
+        raise RuntimeError("RFBHandler_01_16.a(byte) tail bytecode pattern is ambiguous in this jar")
+    method_start = tail_idx - 4  # aload_0 (1 byte) + getfield (3 bytes)
+    if hay[method_start] != 0x2A or hay[method_start + 1] != 0xB4:
+        raise RuntimeError("RFBHandler_01_16.a(byte) doesn't start with aload_0/getfield as expected")
+
+    prelude = bytes([
+        0xB2, (sysout_idx >> 8) & 0xFF, sysout_idx & 0xFF,   # getstatic System.out
+        0x1B,                                                 # iload_1 (the byte param, widened to int)
+        0xB6, (println_idx >> 8) & 0xFF, println_idx & 0xFF,  # invokevirtual println(I)V
+    ])
+    override = read_scancode_override()
+    if override is not None:
+        # Scancode sweep, polarity-aware: SCANCODE_OVERRIDE_FILE holds
+        # a *base* value (e.g. "0a"), and this emits it with standard
+        # PS/2 polarity for whichever call this actually is -- press
+        # gets the plain base, release gets base|0x80. Which one this
+        # call is gets detected at runtime from the *original*
+        # computed byte's own bit 7, which (per the unpatched
+        # translator's own -- backwards from standard -- convention)
+        # is set on press and clear on release:
+        #
+        #   iload_1; bipush -128; iand     -- isolate bit 7 (0 or -128)
+        #   ifeq L_release
+        #     bipush <base>                -- press: plain
+        #     goto L_store
+        #   L_release:
+        #     bipush <base|0x80>           -- release: high bit set
+        #   L_store:
+        #   istore_1
+        #
+        # A single fixed value for both press and release (an earlier
+        # version of this override) was tried first and is a strictly
+        # weaker test -- it can't distinguish "value is wrong" from
+        # "polarity is wrong", since both calls send identical bytes.
+        base = override & 0x7F
+        press_signed = base
+        release_val = base | 0x80
+        release_signed = release_val - 256
+        prelude += bytes([
+            0x1B,                 # iload_1
+            0x10, 0x80,           # bipush -128
+            0x7E,                 # iand
+            0x99, 0x00, 0x08,     # ifeq +8 -> L_release
+            0x10, press_signed & 0xFF,   # bipush <base>            (press)
+            0xA7, 0x00, 0x05,     # goto +5 -> L_store
+            0x10, release_signed & 0xFF,  # bipush <base|0x80>      (release, L_release)
+            0x3C,                 # istore_1                         (L_store)
+        ])
+    elif FLIP_KEY_POLARITY:
+        # Logged values show press sending the byte with bit 7 SET
+        # (e.g. 0x85) and release sending it CLEAR (0x05) -- backwards
+        # from standard PS/2 Set 1 convention, where bit 7 marks
+        # release/break, not press/make. Confirmed via tcpdump that
+        # this flip does land correctly on the wire (0x09 on press,
+        # 0x89 on release) -- but on its own it did NOT make keys
+        # register on the remote screen, so the scancode *value*
+        # itself is also suspect (or wrong entirely). Left available
+        # as a toggle since it may still be needed in combination with
+        # a correct value. XOR with 0xFFFFFF80 (bipush -128,
+        # sign-extended) flips bit 7 and keeps the result a correctly
+        # sign-extended byte in one step -- no i2b needed, correct for
+        # both positive and negative original values.
+        prelude += bytes([
+            0x1B,        # iload_1
+            0x10, 0x80,  # bipush -128 (0xFFFFFF80 sign-extended)
+            0x82,        # ixor
+            0x3C,        # istore_1 -- original tail's iload_1 now sees the flipped value
+        ])
+    new_data[method_start:method_start] = prelude
+    grow = len(prelude)
+
+    # Code attribute header immediately precedes the method body:
+    # attribute_name_index(u2) attribute_length(u4) max_stack(u2)
+    # max_locals(u2) code_length(u4) <code>. code_length and
+    # attribute_length both need to grow by exactly what we inserted;
+    # our prelude's own max stack depth (2: System.out + the int) is
+    # no higher than the original body already needed, so max_stack
+    # is left alone.
+    code_length_off = method_start - 4
+    attr_length_off = method_start - 12
+    cur_code_length = struct.unpack_from(">I", new_data, code_length_off)[0]
+    struct.pack_into(">I", new_data, code_length_off, cur_code_length + grow)
+    cur_attr_length = struct.unpack_from(">I", new_data, attr_length_off)[0]
+    struct.pack_into(">I", new_data, attr_length_off, cur_attr_length + grow)
+
+    return bytes(new_data)
+
+
 PATCH_CLASS_FILES = ["nn/pp/rc/bm.class", "nn/pp/rc/bm$Listener.class", "nn/pp/rc/bm$1.class"]
 SIGNATURE_PREFIXES = ("META-INF/",)
 
@@ -378,6 +623,8 @@ def fetch_and_patch_jars():
                     data = patch_remote_console_applet(data)
                 if jar_name == "rc.jar" and item.filename == "nn/pp/rc/af.class":
                     data = patch_af_locale(data)
+                if jar_name == "rc.jar" and item.filename == "nn/pp/rc/RFBHandler_01_16.class":
+                    data = patch_rfbhandler_keylog(data)
                 if jar_name == "rc.jar" and item.filename in PATCH_CLASS_FILES:
                     continue
                 dst.writestr(item, data)

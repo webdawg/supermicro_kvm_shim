@@ -115,14 +115,62 @@ Video is fully solid. Keyboard is not, and it's very likely a
 - Only one TCP connection exists (to `:443`) -- this firmware doesn't
   use the older split video/HID-port (5900/5901) scheme some other
   Supermicro generations had, so that's not it either.
+- Confirmed via a real Java 6 (Zulu, contemporaneous with this
+  firmware's ~2010 last-touched date) test rig, `java6-test/`: identical
+  failure under a genuinely period-correct JVM, ruling out modern-JVM
+  incompatibility.
+- Confirmed, via `patch_rfbhandler_keylog()` (a fourth binary patch,
+  logs the real computed byte and optionally overrides it -- see
+  below) that the shipped translator's press/release polarity is
+  backwards from standard PS/2 Set 1 (bit 7 set on *press*, not
+  release), **and** that its base scancode is consistently one less
+  than the standard table (e.g. key `9` computes `0x09`, standard is
+  `0x0A`). Neither fixing polarity alone, fixing the off-by-one alone,
+  fixing both together, nor swapping in USB HID Usage IDs or PS/2 Set
+  2 values changes the outcome -- still nothing reaches the screen.
+- Confirmed even the BMC's own **pre-programmed Ctrl+Alt+Delete
+  hotkey** produces zero reaction -- this is the strongest single data
+  point, since those bytes are firmware-defined and require no
+  guessing at all, eliminating "is our scancode value/polarity
+  correct" as a variable entirely.
 
 Together this points at the BMC's own USB HID emulation to the
-motherboard, not the Java/RFB client path. Supermicro's own support
-history has multiple reports of exactly this shape (video works,
-keyboard doesn't) fixed by a BMC/iKVM reset, or in some cases a full
-AC power cycle of the board. See `tools/bmc-tools.sh reset-bmc` below.
-If that doesn't help, check BIOS USB settings (legacy USB support/USB
-keyboard support) and consider a BMC firmware update.
+motherboard, not the Java/RFB client path or anything about scancode
+encoding. Supermicro's own support history has multiple reports of
+exactly this shape (video works, keyboard doesn't) fixed by a BMC/iKVM
+reset, or in some cases a full AC power cycle of the board. See
+`tools/bmc-tools.sh reset-bmc` below. If that doesn't help, check BIOS
+USB settings (legacy USB support/USB keyboard support) and consider a
+BMC firmware update.
+
+### Scancode sweep tooling
+
+`patch_rfbhandler_keylog()` patches `nn.pp.rc.RFBHandler_01_16.a(byte)`
+-- the single choke point every computed scancode byte passes through
+before hitting the wire (confirmed via `tcpdump`: msg-type `0x04` +
+this exact byte) -- to log every real value in real time
+(`docker compose logs -f`, plain integers, one per keystroke) instead
+of inferring them from packet hex dumps.
+
+It also supports a live override for fast iteration without a
+container rebuild: write a hex byte to `/work/scancode_override`
+inside the running container, then kill the `appletviewer` process to
+force a reconnect (`entrypoint.sh`'s loop re-logs-in and re-patches
+the jar fresh every time, picking up the new value in ~10-15s). The
+override is polarity-aware -- it detects press vs. release at runtime
+from the *original* computed byte's own bit 7 and emits the override
+value with correct standard-PS/2 polarity for whichever one it is,
+rather than sending one fixed byte for both (which can't distinguish
+"value is wrong" from "polarity is wrong"):
+
+```
+docker exec supermicro_kvm_shim bash -c 'echo 0a > /work/scancode_override'
+docker exec supermicro_kvm_shim pkill appletviewer
+# wait ~10-15s for reconnect, then test a keypress
+```
+
+Empty/missing file (or `rm /work/scancode_override`) reverts to
+logging-only, no override.
 
 ## BMC maintenance toolkit
 
