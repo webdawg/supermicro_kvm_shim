@@ -1,0 +1,33 @@
+services:
+  kvm-shim:
+    build: .
+    container_name: supermicro_kvm_shim
+    # The BMC lives on an IPMI-only management subnet (10.0.99.0/24)
+    # that the default docker bridge has no route to. Host networking
+    # gives the container the same reachability this machine already
+    # has to it.
+    network_mode: host
+    environment:
+      BMC_HOST: ${BMC_HOST:-10.0.99.215}
+      BMC_USER: ${BMC_USER:-root}
+      BMC_PASS: ${BMC_PASS:?set BMC_PASS in .env}
+      VNC_PASSWORD: ${VNC_PASSWORD:-}
+    restart: unless-stopped
+
+  # Period-correct test rig: real Java 6 (Zulu), original unmodified
+  # signed jars straight from the BMC, none of the bytecode patches.
+  # Runs alongside kvm-shim on separate ports (5901/6081) so both can
+  # be compared side by side. See java6-test/.
+  kvm-shim-java6:
+    build:
+      context: .
+      dockerfile: java6-test/Dockerfile
+    container_name: supermicro_kvm_shim_java6
+    network_mode: host
+    environment:
+      BMC_HOST: ${BMC_HOST:-10.0.99.215}
+      BMC_USER: ${BMC_USER:-root}
+      BMC_PASS: ${BMC_PASS:?set BMC_PASS in .env}
+      VNC_PASSWORD: ${VNC_PASSWORD:-}
+    profiles:
+      - java6

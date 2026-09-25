@@ -1,0 +1,9 @@
+// This container only ever runs one thing: the legacy Peppercon iKVM
+// applet, which needs raw-socket + AWT permissions the default applet
+// sandbox denies (and which can never chain-validate to a trusted
+// root anyway, since its signing cert is a dead self-issued Peppercon
+// CA). Granting AllPermission JVM-wide is acceptable here because the
+// JVM's only job is this applet, in an isolated container.
+grant {
+    permission java.security.AllPermission;
+};

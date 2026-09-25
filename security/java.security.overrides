@@ -1,0 +1,10 @@
+# Relaxations needed to run a ~2010 Peppercon-signed applet whose jar
+# signature (MD5withRSA, 1024-bit key) and signing cert (expired 2008)
+# every modern JDK refuses by default. Only applies inside this
+# throw-away container, which only ever talks to one trusted BMC on
+# an isolated management subnet -- do NOT copy this into a JRE used
+# for general browsing.
+jdk.jar.disabledAlgorithms=
+jdk.certpath.disabledAlgorithms=
+jdk.security.legacyAlgorithms=
+jdk.tls.disabledAlgorithms=
