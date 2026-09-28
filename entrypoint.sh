@@ -28,8 +28,12 @@ websockify --web=/usr/share/novnc/ 6080 localhost:5900 &
 mkdir -p /work/jars
 (cd /work/jars && python3 -m http.server 8765 --bind 127.0.0.1 >/dev/null 2>&1) &
 
-echo "[shim] noVNC:  http://<this-host>:6080/vnc.html"
-echo "[shim] VNC:    <this-host>:5900"
+python3 /opt/shim/reset_server.py &
+
+echo "[shim] Start here: http://<this-host>:6080/"
+echo "[shim] Connect:     http://<this-host>:6080/connect.html  (forces a fresh session)"
+echo "[shim] noVNC:       http://<this-host>:6080/vnc.html"
+echo "[shim] VNC:         <this-host>:5900"
 
 while true; do
   echo "[shim] Logging into $BMC_HOST and fetching a fresh console session..."

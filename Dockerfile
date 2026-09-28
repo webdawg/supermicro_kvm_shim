@@ -14,13 +14,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-dejavu-core \
     fontconfig \
     ipmitool \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/shim
 COPY login_and_launch.py /opt/shim/login_and_launch.py
+COPY reset_server.py /opt/shim/reset_server.py
 COPY security/ /opt/shim/security/
 COPY entrypoint.sh /opt/shim/entrypoint.sh
 RUN chmod +x /opt/shim/entrypoint.sh
+
+# Landing page: "Connect" forces a fresh BMC login + applet relaunch
+# (see reset_server.py) before handing off to noVNC's own vnc.html.
+COPY connect.html /usr/share/novnc/connect.html
+COPY index.html /usr/share/novnc/index.html
 
 COPY tools/bmc-tools.sh /usr/local/bin/bmc-tools.sh
 RUN chmod +x /usr/local/bin/bmc-tools.sh

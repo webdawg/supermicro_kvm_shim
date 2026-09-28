@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Supermicro KVM Shim</title>
+<style>
+  body { font-family: sans-serif; background: #222; color: #eee; display: flex;
+         align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+  .wrap { max-width: 640px; padding: 1em; }
+  h1 { font-size: 1.3em; }
+  .card { background: #2c2c2c; border: 1px solid #444; border-radius: 8px;
+          padding: 1.2em; margin: 1em 0; }
+  .card h2 { margin-top: 0; font-size: 1.1em; }
+  .card p { color: #bbb; line-height: 1.4; }
+  a.btn { display: inline-block; margin-top: 0.5em; padding: 0.5em 1.2em;
+          background: #3a7; color: #fff; text-decoration: none; border-radius: 4px; }
+  a.btn:hover { background: #4b8; }
+  code { background: #1a1a1a; padding: 0.1em 0.4em; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Supermicro KVM Shim</h1>
+
+  <div class="card">
+    <h2>Connect (recommended)</h2>
+    <p>Forces a fresh BMC login and relaunches the console applet before
+    connecting -- clears a stale BMC session or a wedged applet. Use this
+    one first, especially after the BMC or host has been power-cycled.</p>
+    <a class="btn" href="connect.html">Connect &rarr;</a>
+  </div>
+
+  <div class="card">
+    <h2>Direct (vnc.html)</h2>
+    <p>Connects straight to whatever's currently on screen, with no reset.
+    Use this if a session is already up and working and you just want to
+    view it -- e.g. a second viewer, or checking on something without
+    interrupting it.</p>
+    <a class="btn" href="vnc.html">Open vnc.html &rarr;</a>
+  </div>
+
+  <p style="color:#888; font-size:0.9em">
+    Raw VNC (no browser): <code>&lt;this-host&gt;:5900</code>
+  </p>
+</div>
+</body>
+</html>

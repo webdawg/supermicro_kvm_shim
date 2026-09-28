@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Connect</title>
+<style>
+  body { font-family: sans-serif; background: #222; color: #eee; display: flex;
+         align-items: center; justify-content: center; height: 100vh; margin: 0; }
+  button { font-size: 1.2em; padding: 0.6em 1.4em; cursor: pointer; }
+  button:disabled { cursor: default; opacity: 0.6; }
+  #status { margin-top: 1em; color: #aaa; }
+</style>
+</head>
+<body>
+<div style="text-align:center">
+  <button id="btn">Connect</button>
+  <div id="status"></div>
+</div>
+<script>
+const btn = document.getElementById('btn');
+const status = document.getElementById('status');
+
+btn.addEventListener('click', async () => {
+  btn.disabled = true;
+  status.textContent = 'Starting a fresh session...';
+  try {
+    await fetch(`${location.protocol}//${location.hostname}:6079/reset`, { method: 'POST' });
+  } catch (e) {
+    status.textContent = 'Reset request failed, connecting anyway...';
+  }
+  let secs = 14;
+  const tick = setInterval(() => {
+    status.textContent = `Starting a fresh session... (${secs}s)`;
+    secs -= 1;
+    if (secs < 0) {
+      clearInterval(tick);
+      location.href = 'vnc.html?autoconnect=true&resize=scale';
+    }
+  }, 1000);
+});
+</script>
+</body>
+</html>
