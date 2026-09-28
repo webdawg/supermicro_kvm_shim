@@ -230,6 +230,16 @@ USB stack. This is not fixable from the client side; the BMC's
 internal virtual-KVM USB bridge itself is failing to enumerate once a
 real OS takes over.
 
+**Update:** the failure is isolated to one specific internal USB
+controller/hub, not universal. A physical USB keyboard plugged into
+the port wired to the failing controller (`usbus3`, the onboard
+EHCI/USB2.0 controller) gets nothing; the *same* keyboard moved to a
+different physical port (routed through a different, working UHCI
+controller) works fine. So a physical keyboard is a real, practical
+workaround here — it just has to go in the right port. If a keyboard
+seems dead on this board, try a different port before assuming it's
+this same bug.
+
 This turns out to be a known, previously-reported issue on this exact
 board generation, with no clean fix:
 
@@ -269,8 +279,14 @@ the same bug class on an older board required custom firmware never
 released for this one). The BMC/iKVM reset and BIOS USB-setting checks
 below are still worth trying since they're cheap, but the realistic
 path forward is what the TrueNAS thread above landed on: manage the
-host over SSH, and keep a genuinely wired physical keyboard on hand for
-BIOS/emergency access rather than relying on the IPMI virtual keyboard.
+host over SSH, and keep a physical keyboard on hand for BIOS/emergency
+access — plugged into a port that works (see "Update" above) — rather
+than relying on the IPMI virtual keyboard.
+
+A support request was sent to Supermicro (see
+[`SUPERMICRO_SUPPORT_REQUEST.md`](SUPERMICRO_SUPPORT_REQUEST.md)) asking
+whether an equivalent USB-1.1-forcing firmware exists for this board's
+IPMI module. No response yet.
 
 For completeness, a BMC/iKVM reset or full AC power cycle of the board
 is worth trying first — see `tools/bmc-tools.sh reset-bmc` above — and
