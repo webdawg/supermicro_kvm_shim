@@ -21,20 +21,22 @@ full technical detail on each):
    a(byte)`, in-place bytecode patch) -- built for the keyboard
    investigation below, not a bug fix itself
 
-**Keyboard input: still not reaching the remote console.** This is
-the open problem. Extremely thoroughly investigated this session --
-see README.md's "Known issue" section for the full list, but the
-short version: everything on the client side checks out (focus is
-fine, real protocol-legal packets are sent and ACKed, we tried
-correcting an observed off-by-one + backwards polarity in the shipped
-translator, tried USB HID and PS/2 Set 2 tables instead) and NONE of
-it changes the outcome. The single strongest data point: even the
-BMC's own **pre-programmed, firmware-defined Ctrl+Alt+Delete hotkey**
-produces zero reaction -- those bytes require no guessing at all,
-which eliminates "our scancode value/polarity is wrong" as an
-explanation entirely. Current working theory: BMC-side USB HID
-emulation to the motherboard is the actual broken component, not
-anything in this client/protocol path.
+**Keyboard input: root-caused, no clean fix exists.** Confirmed via
+direct SSH into the managed host (bypassing the broken keyboard path
+entirely): the BMC's virtual USB HID device fails FreeBSD's own USB
+enumeration outright at boot (`USB_ERR_IOERROR`, never resolves a
+vendor/product ID, ends in `uhub_reattach_port: could not allocate new
+device`) on the onboard EHCI controller. It works fine during BIOS/POST
+because BIOS's legacy USB keyboard support is much more tolerant than a
+real OS USB stack. This is a known, previously-reported issue on this
+exact board generation (see README.md's "Known issue" section for full
+citations) with no available firmware fix -- Supermicro's fix for the
+same bug class on an older board (X7DBU/SIMSO+) required a custom
+firmware build never released for this board's IPMI module. Practical
+answer: manage the host over SSH, keep a genuinely wired physical
+keyboard on hand for BIOS/emergency access, don't rely on the IPMI
+virtual keyboard. Closed as a hardware/firmware limitation, not
+something to keep chasing in this client.
 
 ## Containers currently running
 
@@ -46,44 +48,25 @@ anything in this client/protocol path.
   Safe to `docker compose stop kvm-shim-java6` if not needed further;
   it's just sitting there idle otherwise.
 
-## Next steps (in the order the user wants to tackle them)
+## Next steps
 
-1. **User is going to check the actual host OS on the managed server**
-   (TrueNAS/FreeBSD) for anything on that side that could be
-   swallowing/buffering USB HID input rather than it being a BMC
-   emulation failure outright -- similar in spirit to a 2025 VyOS
-   report the user found, where keystrokes were arriving at the OS's
-   `/dev/input/eventN` but not visibly registering. Worth checking
-   `usbconfig`/`usbhid` state on the FreeBSD side if there's any way
-   to get a shell (SOL, if it works independently of the KVM keyboard
-   path -- untested so far this session, worth trying:
-   `tools/bmc-tools.sh sol`).
+Keyboard investigation is closed -- see "Current state" above and
+README.md's "Known issue" section. Root cause confirmed via direct SSH
+into the host: hardware is a **Supermicro X7DB8** with an add-on
+**AOC-IPMI20-E** IPMI module (Peppercon AG, firmware 1.64). The BMC's
+virtual USB HID device fails FreeBSD's own USB enumeration at boot;
+works fine under BIOS's much more tolerant legacy USB polling. No
+client-side fix exists. The scancode sweep tool (`tools/
+scancode_sweep.sh`) was built and dry-run validated during the
+investigation but is now moot given the root cause -- not worth
+running to completion.
 
-2. **User is going to check BIOS settings on the motherboard itself**
-   -- specifically Legacy USB Support / USB Keyboard Support. This is
-   the setting from the user's own Supermicro support research
-   (video-works-keyboard-doesn't is a known symptom tied to this
-   setting on some boards). Can't be reached via the currently-broken
-   KVM keyboard, obviously -- needs physical access, or SOL if BIOS
-   has console redirection enabled.
-
-3. **Resume the full scancode sweep** -- built and dry-run validated
-   this session (`tools/scancode_sweep.sh`), but the user asked not to
-   start the full run before exiting. To resume:
-   ```
-   tools/scancode_sweep.sh 0 127
-   ```
-   Takes ~30-40 minutes unattended (128 values x ~15s each: set
-   override, force reconnect, screenshot before/after a keypress,
-   pixel-diff them). Results land in `sweep_results/results.log`
-   (repo-root-relative, gitignored) -- one line per value with an
-   ImageMagick `compare -metric AE` diff count -- plus before/after
-   PNGs per value. Review for any value whose diff is well above the
-   blinking-cursor baseline noise (~490-500 in the dry-run of values
-   0x00-0x01, for reference). Given everything else points
-   server-side, low expectation this finds anything, but it's cheap to
-   run to exhaustion for certainty before fully committing to the
-   server-side theory.
+Remaining open thread: a support request was drafted to send to
+Supermicro asking whether a USB-1.1-forcing firmware revision exists
+for the AOC-IPMI20-E module, analogous to the fix in [FAQ
+11530](https://www.supermicro.com/en/support/faqs/faq.php?faq=11530)
+for the X7DBU/SIMSO+ combo (same board generation, different IPMI
+module). Low expectation given the module's age, but cheap to ask.
 
 ## Everything else
 

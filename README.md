@@ -215,12 +215,67 @@ this client:
   value or polarity is wrong" as an explanation entirely, since those
   bytes require no guessing at all.
 
-Supermicro's own support history has multiple reports of exactly this
-shape (video works, keyboard doesn't), fixed by a BMC/iKVM reset or,
-in some cases, a full AC power cycle of the board — see `tools/
-bmc-tools.sh reset-bmc` above. If that doesn't help, check BIOS USB
-settings (Legacy USB Support / USB Keyboard Support) and consider a
-BMC firmware update. Full investigation notes and next steps live in
+**Root cause, confirmed from the OS side:** SSH'd directly into the
+managed host (bypassing the broken keyboard path entirely) and pulled
+`dmesg`/`usbconfig`. The BMC's virtual USB HID device fails FreeBSD's
+own USB enumeration outright — repeated `USB_ERR_IOERROR` on the
+device descriptor read, ending in `<Unknown> ... disconnected` and
+`uhub_reattach_port: could not allocate new device` — on the onboard
+EHCI/USB2.0 controller, at boot, before the OS is even up. It never
+returns a valid vendor/product ID. Telling detail: keyboard input
+*does* work during BIOS/POST through the same IPMI remote console —
+BIOS's legacy USB keyboard support is a crude SMM-level polling trick,
+far more tolerant of a marginal device than a real, spec-compliant OS
+USB stack. This is not fixable from the client side; the BMC's
+internal virtual-KVM USB bridge itself is failing to enumerate once a
+real OS takes over.
+
+This turns out to be a known, previously-reported issue on this exact
+board generation, with no clean fix:
+
+- [TrueNAS Community: "IPMI No Keyboard"](https://www.truenas.com/community/threads/ipmi-no-keyboard.35423/) —
+  Supermicro X8DTN+ (SIMLP IPMI), the same board generation as this
+  one, hits the identical FreeBSD error
+  (`usbd_setup_device_desc: getting device descriptor at address 3
+  failed, USB_ERR_IOError`). Physical USB keyboards and other OSes
+  (Ubuntu) worked fine; only the IPMI virtual keyboard failed under
+  FreeBSD. BIOS Legacy USB toggles and an `xhci` tunable were tried (the
+  tunable made it worse); the board was EOL with no firmware fix
+  available. Thread ends unresolved — SSH + a physical keyboard was the
+  practical answer.
+- [Supermicro FAQ 11530](https://www.supermicro.com/en/support/faqs/faq.php?faq=11530) —
+  a real, Supermicro-acknowledged instance of this exact bug class on
+  an **older, different** board: X7DBU with a SIMSO+ IPMI module,
+  firmware 1.59–1.63, where the BMC's virtual HID defaulted to USB 2.0
+  and the OS's USB2 stack couldn't negotiate with it. Supermicro's fix
+  was a special firmware build
+  (`ugsim163-USB1-1.bin`) forcing that BMC's virtual USB device down to
+  USB 1.1. **This firmware is specific to the X7DBU/SIMSO+ module and
+  does not apply here** — it's tied to different BMC hardware entirely,
+  and flashing an IPMI firmware image built for a different module
+  would risk bricking the BMC rather than fixing anything. No
+  equivalent USB-1.1-forcing firmware was found for this board's IPMI
+  module.
+- [OpenBSD bug report](http://www.mail-archive.com/bugs@openbsd.org/msg24324.html) —
+  different chipset (ASPEED AST2400) and OS, but the same underlying
+  pattern: a BMC-emulated USB HID device violating USB error-recovery
+  expectations that a strict OS host stack enforces but lenient BIOS
+  polling doesn't.
+
+**Practical conclusion:** this is a firmware-level limitation of this
+board generation's BMC, not something fixable in software from this
+client, and there's no known clean fix for it (Supermicro's fix for
+the same bug class on an older board required custom firmware never
+released for this one). The BMC/iKVM reset and BIOS USB-setting checks
+below are still worth trying since they're cheap, but the realistic
+path forward is what the TrueNAS thread above landed on: manage the
+host over SSH, and keep a genuinely wired physical keyboard on hand for
+BIOS/emergency access rather than relying on the IPMI virtual keyboard.
+
+For completeness, a BMC/iKVM reset or full AC power cycle of the board
+is worth trying first — see `tools/bmc-tools.sh reset-bmc` above — and
+check BIOS USB settings (Legacy USB Support / USB Keyboard Support).
+Full investigation notes and next steps live in
 [`NEXT_STEPS.md`](NEXT_STEPS.md).
 
 <details>
