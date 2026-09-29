@@ -12,7 +12,10 @@ services:
       BMC_USER: ${BMC_USER:-root}
       BMC_PASS: ${BMC_PASS:?set BMC_PASS in .env}
       VNC_PASSWORD: ${VNC_PASSWORD:-}
-    restart: unless-stopped
+    # On-demand only -- run via tools/kvm.sh, not left running all the
+    # time. No restart policy: it should never come back on its own
+    # (e.g. after a host reboot) without someone explicitly starting it.
+    restart: "no"
 
   # Period-correct test rig: real Java 6 (Zulu), original unmodified
   # signed jars straight from the BMC, none of the bytecode patches.

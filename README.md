@@ -10,8 +10,8 @@ inside a container against a patched, current JVM, and exposes the
 console as plain noVNC in your browser.
 
 ```
-docker compose up --build
-# open http://localhost:6080/vnc.html
+tools/kvm.sh
+# starts it, waits for it to be ready, prints the URL to open
 ```
 
 ---
@@ -54,20 +54,27 @@ fight to have on top of everything else.
    gitignored; never commit real credentials.
 3. **Run it:**
    ```
-   docker compose up --build
+   tools/kvm.sh          # start (builds if needed), prints the URL
+   tools/kvm.sh status   # is it running?
+   tools/kvm.sh stop     # stop + remove the container, fully cleaned up
    ```
-4. **Open the console:**
-   - Browser: `http://localhost:6080/vnc.html` (noVNC — works from
-     any device, no client install)
-   - Or a real VNC client: `localhost:5900`
+4. **Open the console:** whatever URL `tools/kvm.sh` prints
+   (`http://localhost:6080/` — a landing page with both **Connect**,
+   which forces a fresh session, and `vnc.html`, direct with no reset).
+   Or a real VNC client: `localhost:5900`.
 
 Runs on `network_mode: host`, since the BMC typically sits on an
 IPMI-only management subnet (e.g. `10.0.99.0/24`) that the default
 Docker bridge network has no route to.
 
-The container loops forever: if the console window closes or the BMC
-session times out, it re-logs-in and relaunches automatically. No
-babysitting required.
+This is **on-demand, not always-on** — `tools/kvm.sh stop` fully
+removes the container rather than leaving it running in the
+background, and there's no restart policy bringing it back on its own
+(e.g. after a host reboot). Start it when you need the console, stop it
+when you're done. While it's running, the container loops forever: if
+the console window closes or the BMC session times out, it re-logs-in
+and relaunches automatically — no babysitting required during a
+session.
 
 ## How it works
 
@@ -361,8 +368,13 @@ pixel-diff cycle above end to end.
 ├── patch/nn/pp/rc/bm.java   Full source rewrite for patch #2
 ├── security/                java.security.overrides, all.policy
 ├── tools/
+│   ├── kvm.sh               Start/stop/status -- the on-demand entry point
 │   ├── bmc-tools.sh         ipmitool grab-bag (see above)
 │   └── scancode_sweep.sh    Unattended keyboard scancode sweep
+├── connect.html             "Connect" button: reset then auto-connect
+├── index.html               Landing page (both connect.html and vnc.html)
+├── reset_server.py          Local HTTP endpoint connect.html calls
 ├── java6-test/              Parallel period-correct Java 6 test rig
-└── NEXT_STEPS.md            Session handoff / investigation notes
+├── NEXT_STEPS.md            Session handoff / investigation notes
+└── SUPERMICRO_SUPPORT_REQUEST.md  Support request + Supermicro's reply
 ```
