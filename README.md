@@ -286,7 +286,9 @@ than relying on the IPMI virtual keyboard.
 A support request was sent to Supermicro (see
 [`SUPERMICRO_SUPPORT_REQUEST.md`](SUPERMICRO_SUPPORT_REQUEST.md)) asking
 whether an equivalent USB-1.1-forcing firmware exists for this board's
-IPMI module. No response yet.
+IPMI module. **Response: no** — X7 is EOL with no firmware updates of
+any kind available. This closes the investigation; there's no further
+firmware-side avenue to pursue.
 
 For completeness, a BMC/iKVM reset or full AC power cycle of the board
 is worth trying first — see `tools/bmc-tools.sh reset-bmc` above — and

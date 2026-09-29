@@ -4,7 +4,18 @@ Sent 2026-09-28. Asking whether a USB-1.1-forcing (or otherwise fixed)
 firmware revision exists for this board's IPMI module, analogous to
 [Supermicro FAQ 11530](https://www.supermicro.com/en/support/faqs/faq.php?faq=11530)'s
 fix for the X7DBU/SIMSO+ combo. See README.md's "Known issue" section
-for full background. No response yet.
+for full background.
+
+**Response (2026-09-29):**
+
+> Unfortunately we do not have any firmware updates available for X7
+> systems, as they are EOL and have been for quite some time.
+
+**Closed, no fix available.** X7 is EOL with no firmware support of any
+kind, not just no fix for this specific bug — confirms there's nothing
+further to pursue on the firmware side. The practical answer stands:
+manage the host over SSH, use a physical keyboard in a working port
+(see README's "Known issue" section) for BIOS/emergency access.
 
 ---
 

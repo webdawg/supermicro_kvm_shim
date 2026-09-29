@@ -67,14 +67,13 @@ a different physical port (routed through a different, working UHCI
 controller) works fine. Practical workaround confirmed: use a
 different USB port for the physical keyboard.
 
-Remaining open thread: a support request was sent to Supermicro (see
+Closed: a support request was sent to Supermicro (see
 [`SUPERMICRO_SUPPORT_REQUEST.md`](SUPERMICRO_SUPPORT_REQUEST.md)) asking
 whether a USB-1.1-forcing firmware revision exists for the AOC-IPMI20-E
-module, analogous to the fix in [FAQ
-11530](https://www.supermicro.com/en/support/faqs/faq.php?faq=11530)
-for the X7DBU/SIMSO+ combo (same board generation, different IPMI
-module). Low expectation given the module's age, but cheap to ask. No
-response yet as of 2026-09-28.
+module. Response (2026-09-29): no firmware updates available for X7
+systems, EOL. No further firmware-side avenue -- practical workaround
+(physical keyboard in a working port, manage over SSH) is the final
+answer here.
 
 ## Everything else
 
