@@ -1,2 +1,4 @@
 .env
 sweep_results/
+portable/vendor/
+portable/dist/

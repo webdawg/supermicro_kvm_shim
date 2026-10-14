@@ -20,6 +20,7 @@ tools/kvm.sh
 
 - [Why this exists](#why-this-exists)
 - [Quick start](#quick-start)
+- [Portable mode (no Docker, no install)](#portable-mode-no-docker-no-install)
 - [How it works](#how-it-works)
 - [BMC maintenance toolkit](#bmc-maintenance-toolkit)
 - [Known issue: keyboard input](#known-issue-keyboard-input-doesnt-reach-the-remote-console)
@@ -75,6 +76,52 @@ when you're done. While it's running, the container loops forever: if
 the console window closes or the BMC session times out, it re-logs-in
 and relaunches automatically — no babysitting required during a
 session.
+
+## Portable mode (no Docker, no install)
+
+For running this on a box that has nothing on it at all — no Docker,
+no root, no package manager, possibly no internet — `portable/` builds
+a self-contained bundle that runs via
+[proot](https://proot-me.github.io/) (a single static ~2MB userspace
+binary, same trick Termux uses to run Debian on Android without root)
+instead of a container runtime. It's the exact same image contents,
+just exported to a plain directory and run with proot standing in for
+the Docker daemon.
+
+**Build once**, on a machine that already has Docker (this one does):
+
+```
+portable/build.sh
+```
+
+This builds the normal image, exports its filesystem, downloads the
+static proot binary, bakes in the credentials from this repo's `.env`,
+and packages everything into one file:
+`portable/dist/kvm-shim-portable-x86_64.tar.gz` (~300MB — it's carrying
+a full JDK8 + X11 + noVNC stack, that's inherent to being fully
+self-contained).
+
+**Run anywhere** (x86_64 Linux, nothing pre-installed, no internet
+needed at this point):
+
+```
+tar xzf kvm-shim-portable-x86_64.tar.gz
+cd kvm-shim-portable
+./kvm-shim.sh            # interactive menu: Start / Stop / Status / Exit
+./kvm-shim.sh start       # or non-interactively
+```
+
+`credentials.env` next to `kvm-shim.sh` holds the hardcoded
+`BMC_HOST`/`BMC_USER`/`BMC_PASS` — edit it directly if they change; it's
+re-read on every start, no rebuild needed. `Start` prints the same
+landing-page/connect/vnc.html/raw-VNC URLs as the Docker version;
+`Stop` tears down the whole process group; `Exit` just leaves the menu
+(doesn't stop a running session, same on-demand philosophy as
+`tools/kvm.sh`).
+
+Because proot doesn't create network namespaces at all, it behaves
+like `network_mode: host` for free — no extra config needed to reach
+the BMC's management subnet.
 
 ## How it works
 
@@ -374,6 +421,9 @@ pixel-diff cycle above end to end.
 ├── connect.html             "Connect" button: reset then auto-connect
 ├── index.html               Landing page (both connect.html and vnc.html)
 ├── reset_server.py          Local HTTP endpoint connect.html calls
+├── portable/                No-Docker, no-install bundle via proot (see above)
+│   ├── build.sh             Run once (needs Docker) -- produces the bundle
+│   └── menu.sh              Becomes kvm-shim.sh inside the built bundle
 ├── java6-test/              Parallel period-correct Java 6 test rig
 ├── NEXT_STEPS.md            Session handoff / investigation notes
 └── SUPERMICRO_SUPPORT_REQUEST.md  Support request + Supermicro's reply
