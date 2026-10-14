@@ -59,11 +59,43 @@ is_running() {
   [ -n "$pid" ] && kill -0 "-$pid" 2>/dev/null
 }
 
+cred_value() {
+  # Reads one KEY=value out of credentials.env without sourcing it.
+  grep "^$1=" "$CREDS" 2>/dev/null | head -1 | cut -d= -f2-
+}
+
+needs_setup() {
+  [ "$(cred_value BMC_PASS)" = "changeme" ]
+}
+
+do_edit_credentials() {
+  local cur_host cur_user cur_vnc in_host in_user in_pass in_vnc
+  cur_host="$(cred_value BMC_HOST)"
+  cur_user="$(cred_value BMC_USER)"
+  cur_vnc="$(cred_value VNC_PASSWORD)"
+  echo "Enter the BMC to connect to (blank = keep current value shown in [brackets])."
+  read -r -p "BMC host/IP [$cur_host]: " in_host
+  read -r -p "BMC username [$cur_user]: " in_user
+  read -rs -p "BMC password: " in_pass; echo
+  read -r -p "VNC password, optional [$cur_vnc]: " in_vnc
+  cat > "$CREDS" <<EOF
+BMC_HOST=${in_host:-$cur_host}
+BMC_USER=${in_user:-$cur_user}
+BMC_PASS=${in_pass:-changeme}
+VNC_PASSWORD=${in_vnc:-$cur_vnc}
+EOF
+  echo "Saved to $CREDS"
+}
+
 do_start() {
   if is_running; then
     echo "Already running."
     print_urls
     return
+  fi
+  if needs_setup; then
+    echo "credentials.env still has the example password -- let's set the real ones first."
+    do_edit_credentials
   fi
   : > "$LOGFILE"
   (
@@ -132,15 +164,17 @@ show_menu() {
   echo " 1) Start"
   echo " 2) Stop"
   echo " 3) Status"
-  echo " 4) Exit"
+  echo " 4) Edit BMC credentials (host/user/password)"
+  echo " 5) Exit"
   echo
 }
 
-# Non-interactive one-shot usage: kvm-shim.sh start|stop|status
+# Non-interactive one-shot usage: kvm-shim.sh start|stop|status|creds
 case "${1:-}" in
   start)  do_start;  exit 0 ;;
   stop)   do_stop;   exit 0 ;;
   status) do_status; exit 0 ;;
+  creds)  do_edit_credentials; exit 0 ;;
 esac
 
 while true; do
@@ -150,7 +184,8 @@ while true; do
     1) do_start ;;
     2) do_stop ;;
     3) do_status ;;
-    4) echo "Exiting menu (service, if running, stays up)."; exit 0 ;;
+    4) do_edit_credentials ;;
+    5) echo "Exiting menu (service, if running, stays up)."; exit 0 ;;
     *) echo "Invalid choice." ;;
   esac
   echo
